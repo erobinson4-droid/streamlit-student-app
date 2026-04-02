@@ -56,11 +56,11 @@ try:
     st.subheader("All Enrollments")
     with conn.cursor() as cur:
         cur.execute("""
-            SELECT s.name AS student, c.name AS course
+            SELECT s.name AS student, c.course_name AS course
             FROM student_courses10 sc
             JOIN students10 s ON sc.student_id = s.id
             JOIN courses10 c ON sc.course_id = c.id
-            ORDER BY s.name, c.name
+            ORDER BY s.name, c.course_name
         """)
         rows = cur.fetchall()
 
