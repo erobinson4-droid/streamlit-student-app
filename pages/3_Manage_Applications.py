@@ -1,49 +1,39 @@
 import streamlit as st
 import pandas as pd
 from db import (
-    get_jobs,
-    get_statuses,
+    get_companies,
     get_applications,
-    validate_application_input,
+    validate_application,
     insert_application,
     update_application,
     delete_application,
+    APPLICATION_STATUSES,
 )
 
 st.set_page_config(page_title="Manage Applications", page_icon="📄", layout="wide")
 
 st.title("📄 Manage Applications")
-st.caption("Track application status, dates, and notes for every role.")
+st.caption("Track every role you have applied for, including status and notes.")
 
 search_term = st.text_input(
-    "Search by company name or job title",
-    placeholder="Type a company or job title...",
+    "Search by job title or company",
+    placeholder="Type a title or company...",
 )
 
-jobs = get_jobs()
-statuses = get_statuses()
+companies    = get_companies()
 applications = get_applications(search_term)
-
 applications_df = pd.DataFrame(applications)
 
-valid_job_ids = [job["id"] for job in jobs]
-valid_status_ids = [status["id"] for status in statuses]
+valid_company_ids = [c["id"] for c in companies]
+company_options   = {c["name"]: c["id"] for c in companies}
 
-job_select_options = {
-    f"{job['company_name']} - {job['title']} (ID: {job['id']})": job["id"]
-    for job in jobs
-}
-
-status_select_options = {
-    status["status_name"]: status["id"]
-    for status in statuses
-}
+# ---------------------------------------------------------------------------
+# Add
+# ---------------------------------------------------------------------------
 
 with st.expander("Add New Application", expanded=True):
-    if not jobs:
-        st.warning("You need at least one job before adding an application.")
-    elif not statuses:
-        st.warning("You need status records in the database before adding an application.")
+    if not companies:
+        st.warning("Add at least one company before logging an application.")
     else:
         with st.form("add_application_form", clear_on_submit=True):
             st.markdown("### New Application")
@@ -51,48 +41,39 @@ with st.expander("Add New Application", expanded=True):
             col1, col2 = st.columns(2)
 
             with col1:
-                selected_job_label = st.selectbox(
-                    "Job *",
-                    options=list(job_select_options.keys()),
+                selected_company_label = st.selectbox(
+                    "Company *", options=list(company_options.keys())
                 )
-                selected_status_label = st.selectbox(
-                    "Status *",
-                    options=list(status_select_options.keys()),
-                )
+                job_title    = st.text_input("Job Title *")
+                status       = st.selectbox("Status *", options=APPLICATION_STATUSES)
 
             with col2:
                 applied_date = st.date_input("Applied Date *")
-                notes = st.text_area("Notes")
+                salary_range = st.text_input("Salary Range", placeholder="e.g. $90k – $110k")
+                posting_url  = st.text_input("Posting URL")
 
-            submitted = st.form_submit_button("Add Application")
+            notes = st.text_area("Notes")
 
-            if submitted:
-                job_id = job_select_options[selected_job_label]
-                status_id = status_select_options[selected_status_label]
-
-                errors = validate_application_input(
-                    job_id,
-                    status_id,
-                    applied_date,
-                    valid_job_ids,
-                    valid_status_ids,
-                )
-
+            if st.form_submit_button("Add Application"):
+                company_id = company_options[selected_company_label]
+                errors = validate_application(job_title, company_id, valid_company_ids, applied_date)
                 if errors:
                     for err in errors:
                         st.error(err)
                 else:
                     success, error = insert_application(
-                        job_id,
-                        status_id,
-                        applied_date,
-                        notes,
+                        company_id, job_title, status, applied_date,
+                        salary_range, posting_url, notes,
                     )
                     if success:
                         st.success("Application added successfully.")
                         st.rerun()
                     else:
-                        st.error(error)
+                        st.error(f"Error adding application: {error}")
+
+# ---------------------------------------------------------------------------
+# View
+# ---------------------------------------------------------------------------
 
 st.subheader("Applications")
 
@@ -102,117 +83,106 @@ else:
     if search_term.strip():
         st.info("No applications matched your search.")
     else:
-        st.info("No applications found.")
+        st.info("No applications found. Add one above.")
+
+# ---------------------------------------------------------------------------
+# Edit
+# ---------------------------------------------------------------------------
 
 st.markdown("### Edit Application")
 
-if applications and jobs and statuses:
-    application_options = {
-        f"{app['company_name']} - {app['job_title']} - {app['status_name']} (ID: {app['id']})": app["id"]
-        for app in applications
+if applications and companies:
+    app_options = {
+        f"{a['company_name']} — {a['job_title']} ({a['status']}) ID:{a['id']}": a["id"]
+        for a in applications
     }
 
-    selected_application_label = st.selectbox(
+    selected_label = st.selectbox(
         "Choose an application to edit",
-        options=["Select an application"] + list(application_options.keys()),
+        options=["Select an application"] + list(app_options.keys()),
     )
 
-    if selected_application_label != "Select an application":
-        selected_application_id = application_options[selected_application_label]
-        selected_application = next(a for a in applications if a["id"] == selected_application_id)
-
-        reverse_job_lookup = {
-            job["id"]: f"{job['company_name']} - {job['title']} (ID: {job['id']})"
-            for job in jobs
-        }
-        reverse_status_lookup = {
-            status["id"]: status["status_name"]
-            for status in statuses
-        }
+    if selected_label != "Select an application":
+        sel_id  = app_options[selected_label]
+        sel_app = next(a for a in applications if a["id"] == sel_id)
 
         with st.form("edit_application_form"):
-            edit_job_label = st.selectbox(
-                "Job *",
-                options=list(job_select_options.keys()),
-                index=list(job_select_options.keys()).index(
-                    reverse_job_lookup[selected_application["job_id"]]
-                ),
-            )
+            col1, col2 = st.columns(2)
 
-            edit_status_label = st.selectbox(
-                "Status *",
-                options=list(status_select_options.keys()),
-                index=list(status_select_options.keys()).index(
-                    reverse_status_lookup[selected_application["status_id"]]
-                ),
-            )
-
-            edit_applied_date = st.date_input(
-                "Applied Date *",
-                value=selected_application["applied_date"],
-            )
-
-            edit_notes = st.text_area(
-                "Notes",
-                value=selected_application["notes"] or "",
-            )
-
-            update_submitted = st.form_submit_button("Update Application")
-
-            if update_submitted:
-                edit_job_id = job_select_options[edit_job_label]
-                edit_status_id = status_select_options[edit_status_label]
-
-                errors = validate_application_input(
-                    edit_job_id,
-                    edit_status_id,
-                    edit_applied_date,
-                    valid_job_ids,
-                    valid_status_ids,
+            with col1:
+                edit_company_label = st.selectbox(
+                    "Company *",
+                    options=list(company_options.keys()),
+                    index=list(company_options.keys()).index(sel_app["company_name"])
+                    if sel_app["company_name"] in company_options else 0,
+                )
+                edit_title = st.text_input("Job Title *", value=sel_app["job_title"])
+                edit_status = st.selectbox(
+                    "Status *",
+                    options=APPLICATION_STATUSES,
+                    index=APPLICATION_STATUSES.index(sel_app["status"])
+                    if sel_app["status"] in APPLICATION_STATUSES else 0,
                 )
 
+            with col2:
+                edit_date        = st.date_input("Applied Date *", value=sel_app["applied_date"])
+                edit_salary      = st.text_input("Salary Range",   value=sel_app["salary_range"] or "")
+                edit_posting_url = st.text_input("Posting URL",    value=sel_app["posting_url"]  or "")
+
+            edit_notes = st.text_area("Notes", value=sel_app["notes"] or "")
+
+            if st.form_submit_button("Update Application"):
+                edit_company_id = company_options[edit_company_label]
+                errors = validate_application(
+                    edit_title, edit_company_id, valid_company_ids, edit_date
+                )
                 if errors:
                     for err in errors:
                         st.error(err)
                 else:
                     success, error = update_application(
-                        selected_application_id,
-                        edit_job_id,
-                        edit_status_id,
-                        edit_applied_date,
-                        edit_notes,
+                        sel_id, edit_company_id, edit_title, edit_status,
+                        edit_date, edit_salary, edit_posting_url, edit_notes,
                     )
                     if success:
                         st.success("Application updated successfully.")
                         st.rerun()
                     else:
-                        st.error(error)
+                        st.error(f"Error updating application: {error}")
 else:
-    st.info("Add jobs, statuses, and applications before editing.")
+    st.info("Add companies and applications before editing.")
+
+# ---------------------------------------------------------------------------
+# Delete
+# ---------------------------------------------------------------------------
 
 st.markdown("### Delete Application")
 
 if applications:
-    delete_application_label = st.selectbox(
+    delete_options = {
+        f"{a['company_name']} — {a['job_title']} ID:{a['id']}": a["id"]
+        for a in applications
+    }
+
+    delete_label = st.selectbox(
         "Choose an application to delete",
-        options=["Select an application to delete"] + list(application_options.keys()),
+        options=["Select an application to delete"] + list(delete_options.keys()),
         key="delete_application_select",
     )
 
-    if delete_application_label != "Select an application to delete":
-        delete_application_id_value = application_options[delete_application_label]
-
-        confirm_delete = st.checkbox("I understand and want to delete this application.")
+    if delete_label != "Select an application to delete":
+        delete_id = delete_options[delete_label]
+        confirmed = st.checkbox("I confirm I want to permanently delete this application.")
 
         if st.button("Delete Application", type="primary"):
-            if not confirm_delete:
+            if not confirmed:
                 st.warning("Please confirm deletion before continuing.")
             else:
-                success, error = delete_application(delete_application_id_value)
+                success, error = delete_application(delete_id)
                 if success:
                     st.success("Application deleted successfully.")
                     st.rerun()
                 else:
-                    st.error(error)
+                    st.error(f"Error deleting application: {error}")
 else:
     st.info("No applications available to delete.")
