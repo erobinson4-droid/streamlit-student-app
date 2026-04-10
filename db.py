@@ -103,6 +103,20 @@ def init_db():
                 ADD COLUMN IF NOT EXISTS posting_url  TEXT;
         """)
 
+        # -- jobs ------------------------------------------------------------
+        # One company can have many job postings.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS jobs (
+                id          SERIAL PRIMARY KEY,
+                company_id  INTEGER REFERENCES companies(id) ON DELETE CASCADE,
+                title       VARCHAR(150) NOT NULL,
+                salary      INTEGER,
+                job_type    VARCHAR(50),
+                posting_url TEXT,
+                created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+
         # -- application_contacts (many-to-many junction) --------------------
         # One application can involve multiple contacts, and one contact can
         # appear on multiple applications (e.g. the same recruiter handles
